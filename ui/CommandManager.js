@@ -1,8 +1,8 @@
 import { forEach, Registry, without } from '../util'
 
 /*
-  Listens to changes on the document and selection and updates the commandStates
-  accordingly.
+  Keeps commandStates up-to-date, e.g. whenever the
+  document or the selection is changed.
 
   The contract is that the CommandManager maintains a state for each
   command contributing to the global application state.
@@ -28,16 +28,12 @@ export default class CommandManager {
     // some initializations such as setting up a registry
     this._initialize()
 
-    // on any update we will recompute
-    this.editorSession.onUpdate(this._onSessionUpdate, this)
-
-    // compute initial command states and
-    // promote to editorSession
-    this._updateCommandStates(this.editorSession)
+    let state = this.editorSession.state
+    state.reduce('commandStates', ['#commandState'], this._updateCommandStates, this)
   }
 
   dispose() {
-    this.editorSession.off(this)
+    this.editorSession.state.disconnect(this)
   }
 
   /*
@@ -92,7 +88,7 @@ export default class CommandManager {
   /*
     Compute new command states object
   */
-  _updateCommandStates(editorSession) {
+  _updateCommandStates(state) {
     const commandContext = this._getCommandContext()
     const params = this._getCommandParams()
     const surface = params.surface
@@ -124,20 +120,8 @@ export default class CommandManager {
         commandStates[cmd.getName()] = cmd.getCommandState(params, commandContext)
       }
     })
-    // NOTE: We previously did a check if commandStates were actually changed
-    // before updating them. However, we currently have complex objects
-    // in the command state (e.g. EditInlineNodeCommand) so we had to remove it.
-    // See Issue #1004
-    this.commandStates = commandStates
-    editorSession.setCommandStates(commandStates)
-  }
 
-  _onSessionUpdate(editorSession) {
-    // TODO: the first condition does not make sense
-    // as 'change' is not a valid resource
-    if (editorSession.hasChanged('change') || editorSession.hasChanged('selection') || editorSession.hasChanged('commandStates')) {
-      this._updateCommandStates(editorSession)
-    }
+    state.set('commandStates', commandStates)
   }
 
   _getCommandContext() {
@@ -145,15 +129,16 @@ export default class CommandManager {
   }
 
   _getCommandParams() {
+    const state = this.context.state
     let editorSession = this.context.editorSession
-    let selectionState = editorSession.getSelectionState()
-    let sel = selectionState.getSelection()
+    let sel = state.get('selection')
     let surface = this.context.surfaceManager.getFocusedSurface()
     return {
       editorSession: editorSession,
-      selectionState: selectionState,
       surface: surface,
       selection: sel,
+      // LEGACY:
+      selectionState: editorSession._selectionState
     }
   }
 }

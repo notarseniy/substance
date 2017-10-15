@@ -30,22 +30,19 @@ class AbstractIsolatedNodeComponent extends Component {
   }
 
   getInitialState() {
-    let selState = this.context.editorSession.getSelectionState()
-    return this._deriveStateFromSelectionState(selState)
+    return this._deriveStateFromSelectionState(this.context.state)
   }
 
   didMount() {
     super.didMount()
 
-    let editorSession = this.context.editorSession
-    editorSession.onRender('selection', this._onSelectionChanged, this)
+    this.context.state.observe(['selection', 'selectionInfo'], this._onSelectionChanged, this)
   }
 
   dispose() {
     super.dispose.call(this)
 
-    let editorSession = this.context.editorSession
-    editorSession.off(this)
+    this.context.state.disconnect(this)
   }
 
   renderContent($$, node, options = {}) {
@@ -112,8 +109,7 @@ class AbstractIsolatedNodeComponent extends Component {
   }
 
   _onSelectionChanged() {
-    let editorSession = this.context.editorSession
-    let newState = this._deriveStateFromSelectionState(editorSession.getSelectionState())
+    let newState = this._deriveStateFromSelectionState(this.context.state)
     if (!newState && this.state.mode) {
       this.extendState({ mode: null })
     } else if (newState && newState.mode !== this.state.mode) {
@@ -144,34 +140,26 @@ class AbstractIsolatedNodeComponent extends Component {
     return ComponentClass
   }
 
-  _getSurface(selState) {
-    let surface = selState.get('surface')
-    if (surface === undefined) {
-      let sel = selState.getSelection()
-      if (sel && sel.surfaceId) {
-        let surfaceManager = this.context.surfaceManager
-        surface = surfaceManager.getSurface(sel.surfaceId)
-      } else {
-        surface = null
-      }
-      selState.set('surface', surface)
+  _getSurface() {
+    const state = this.context.state
+    let sel = state.get('selection')
+    let surface
+    if (sel && sel.surfaceId) {
+      let surfaceManager = this.context.surfaceManager
+      surface = surfaceManager.getSurface(sel.surfaceId)
+    } else {
+      surface = null
     }
     return surface
   }
 
   // compute the list of surfaces and isolated nodes
   // for the given selection
-  _getIsolatedNodes(selState) {
-    let isolatedNodes = selState.get('isolatedNodes')
-    if (!isolatedNodes) {
-      let sel = selState.getSelection()
-      isolatedNodes = []
-      if (sel && sel.surfaceId) {
-        let surfaceManager = this.context.surfaceManager
-        let surface = surfaceManager.getSurface(sel.surfaceId)
-        isolatedNodes = surface.getComponentPath().filter(comp => comp._isAbstractIsolatedNodeComponent)
-      }
-      selState.set('isolatedNodes', isolatedNodes)
+  _getIsolatedNodes(state) {
+    let selInfo = state.get('selectionInfo')
+    let isolatedNodes = []
+    if (selInfo && selInfo.isolatedNodes) {
+      isolatedNodes = selInfo.isolatedNodes
     }
     return isolatedNodes
   }

@@ -94,6 +94,7 @@ class AbstractEditor extends Component {
     return {
       editor: this,
       editorSession: this.editorSession,
+      state: this.editorSession.state,
       doc: this.doc, // NOTE: deprecated, use document
       document: this.doc,
       componentRegistry: this.componentRegistry,

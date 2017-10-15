@@ -138,13 +138,13 @@ class IsolatedNodeComponent extends AbstractIsolatedNodeComponent {
     }
   }
 
-  _deriveStateFromSelectionState(selState) {
-    let surface = this._getSurface(selState)
+  _deriveStateFromSelectionState(state) {
+    let surface = this._getSurface(state)
     let newState = { mode: null, unblocked: null}
     if (!surface) return newState
     // detect cases where this node is selected or co-selected by inspecting the selection
     if (surface === this.context.surface) {
-      let sel = selState.getSelection()
+      let sel = state.get('selection')
       let nodeId = this.props.node.id
       if (sel.isNodeSelection() && sel.getNodeId() === nodeId) {
         if (sel.isFull()) {
@@ -168,7 +168,7 @@ class IsolatedNodeComponent extends AbstractIsolatedNodeComponent {
           newState.mode = 'focused'
           newState.unblocked = true
         } else {
-          let isolatedNodes = this._getIsolatedNodes(selState)
+          let isolatedNodes = this._getIsolatedNodes(state)
           if (isolatedNodes.indexOf(this) > -1) {
             newState.mode = 'co-focused'
             newState.unblocked = true

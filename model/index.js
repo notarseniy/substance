@@ -63,7 +63,9 @@ export { default as Range } from './Range'
 export { default as Schema } from './Schema'
 export { default as Selection } from './Selection'
 export { selectionHelpers }
-export { default as SelectionState } from './SelectionState'
+export { default as SelectionInfo } from './SelectionInfo'
+// legacy
+export { default as SelectionState } from './SelectionInfo'
 export { default as TextBlock } from './TextBlock'
 export { default as TextNode } from './TextNode'
 export { default as TextNodeMixin } from './TextNodeMixin'

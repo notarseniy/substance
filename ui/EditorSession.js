@@ -1,11 +1,15 @@
 import {
-  forEach, isPlainObject, isFunction, isString,
+  forEach, isPlainObject, isFunction,
   EventEmitter, uuid
 } from '../util'
-import { Selection, SelectionState, ChangeHistory,
+import { Selection, SelectionInfo, ChangeHistory,
   Transaction, operationHelpers } from '../model'
+import State from './State'
 
-class EditorSession extends EventEmitter {
+// LEGACY: earlier we used stages for state events
+const LEGACY_STAGES = ['update', 'pre-render', 'render', 'post-render', 'position', 'finalize']
+
+export default class EditorSession extends EventEmitter {
 
   constructor(doc, options) {
     super()
@@ -13,6 +17,7 @@ class EditorSession extends EventEmitter {
 
     this.__id__ = uuid()
     this.document = doc
+
     const configurator = options.configurator
     if (!configurator) {
       throw new Error('No configurator provided.')
@@ -24,33 +29,22 @@ class EditorSession extends EventEmitter {
     // automatically, so that tx is easier to use.
     _patchTxSetSelection(this._transaction, this)
 
+    // EXPERIMENTAL: Working on AppState API
+    this.state = new State({
+      document: doc,
+      selection: Selection.nullSelection,
+      commandStates: [],
+      lang:  options.lang || this.configurator.getDefaultLanguage(),
+      dir: options.dir || 'ltr'
+    })
+
+    // TODO: history should be part of the app-state, too
     this._history = new ChangeHistory()
+
     // used for change accumulation (in a collab environment)
     this._currentChange = null
 
-    // TODO: while it is good to have these selection
-    // related derived state informations separated
-    // it would feel better to have the selection itself
-    // as a property of this session
-    this._selectionState = new SelectionState(doc)
-
-    this._commandStates = []
-
-    // the session exposes these resources, and keeps track of changes
-    this._resources = ['document', 'selection', 'commandStates']
-    // flags to keep track which resources have changed since the last 'flow'
-    this._dirtyFlags = {}
-    // set during a change
-    this._change = null
-    this._info = null
-
-    this._flowStages = ['update', 'pre-render', 'render', 'post-render', 'position', 'finalize']
-    // to get something executed directly after a flow
-    this._postponed = []
-    this._observers = {}
-
-    this._lang = options.lang || this.configurator.getDefaultLanguage()
-    this._dir = options.dir || 'ltr'
+    this._lastChange = null
 
     // Managers
     // --------
@@ -67,9 +61,11 @@ class EditorSession extends EventEmitter {
     // surface manager takes care of surfaces, keeps track of the currently focused surface
     // and makes sure the DOM selection is rendered properly at the end of a flow
     this.surfaceManager = new SurfaceManager(this)
+
     // this context is provided to commands, tools, etc.
     this._context = {
       editorSession: this,
+      state: this.state,
       //legacy
       surfaceManager: this.surfaceManager,
     }
@@ -77,6 +73,10 @@ class EditorSession extends EventEmitter {
     if (options.context) {
       Object.assign(this._context, options.context)
     }
+
+    this._selectionInfo = new SelectionInfo(this.state, this._context)
+    // TODO: we should remove this after having fixed all deprecations
+    this._selectionState = new LegacySelectionState(this.state)
 
     let commands = configurator.getCommands()
     let dropHandlers = configurator.getDropHandlers()
@@ -122,6 +122,20 @@ class EditorSession extends EventEmitter {
     // TODO: see how we want to expose these
     this.converterRegistry = converterRegistry
     this.editingBehavior = editingBehavior
+
+    // pseudo-reducers so that the 'stages' work as expected (at least if a reducer observers the previous stage)
+    LEGACY_STAGES.forEach((stage, i) => {
+      const output = `@${stage}`
+      const input = `@${LEGACY_STAGES[i-1]}`
+      let f = ()=>{
+        this.state._setDirty(output)
+      }
+      if (i === 0) {
+        this.state.reduce(output, [], f, this)
+      } else {
+        this.state.reduce(output, [input], f, this)
+      }
+    })
   }
 
   dispose() {
@@ -136,7 +150,8 @@ class EditorSession extends EventEmitter {
   }
 
   hasChanged(resource) {
-    return this._dirtyFlags[resource]
+    console.warn('DEPRECATED: use state API instead.')
+    return this.state.isDirty(resource)
   }
 
   hasDocumentChanged() {
@@ -159,7 +174,11 @@ class EditorSession extends EventEmitter {
     return this.hasChanged('dir')
   }
 
+  /*
+    @deprecated
+  */
   get(resourceName) {
+    console.warn("DEPRECATED: use State API instead.")
     switch(resourceName) {
       case 'document':
         return this.getDocument()
@@ -191,23 +210,49 @@ class EditorSession extends EventEmitter {
   }
 
   getSelection() {
-    return this.getSelectionState().getSelection()
+    return this.state.get('selection')
   }
 
   getSelectionState() {
     return this._selectionState
   }
 
+  /*
+    @deprecated
+  */
   getCommandStates() {
-    return this._commandStates
+    console.warn("DEPRECATED: use state.get('commandStates') instead.")
+    return this.state.get('commandStates')
   }
 
+  /*
+    @deprecated
+  */
   getChange() {
-    return this._change
+    console.warn("DEPRECATED: use editorSession.getLastChange() instead")
+    return this.getLastChange()
   }
 
+  /*
+    @deprecated
+  */
   getChangeInfo() {
-    return this._info
+    console.warn("DEPRECATED: use editorSession.getLastChangeInfo() instead")
+    return this.getLastChangeInfo()
+  }
+
+  // TODO: do we really need this?
+  getLastChange() {
+    if (this._lastChange) {
+      return this._lastChange
+    }
+  }
+
+  // TODO: do we really need this?
+  getLastChangeInfo() {
+    if (this._lastChange) {
+      return this._lastChange.info
+    }
   }
 
   getFocusedSurface() {
@@ -219,11 +264,13 @@ class EditorSession extends EventEmitter {
   }
 
   getLanguage() {
-    return this._lang
+    console.warn("DEPRECATED: use state.get('lang') instead.")
+    return this.state.get('lang')
   }
 
   getTextDirection() {
-    return this._dir
+    console.warn("DEPRECATED: use state.get('dir') instead.")
+    return this.state.get('dir')
   }
 
   canUndo() {
@@ -254,6 +301,10 @@ class EditorSession extends EventEmitter {
   }
 
   setSelection(sel, skipFlow) {
+    if (skipFlow) {
+      debugger // eslint-disable-line
+      console.error('FIXME: lets try to get rid of this "skipFlow" HACK.')
+    }
     // console.log('EditorSession.setSelection()', sel)
     if (sel && isPlainObject(sel)) {
       sel = this.getDocument().createSelection(sel)
@@ -270,9 +321,8 @@ class EditorSession extends EventEmitter {
     _addSurfaceId(sel, this)
     _addContainerId(sel, this)
 
-    if (this._setSelection(sel) && !skipFlow) {
-      this.startFlow()
-    }
+    this._setSelection(sel)
+
     return sel
   }
 
@@ -287,24 +337,15 @@ class EditorSession extends EventEmitter {
   }
 
   setCommandStates(commandStates) {
-    this._commandStates = commandStates
-    this._setDirty('commandStates')
+    this.state.set('commandStates', commandStates)
   }
 
   setLanguage(lang) {
-    if (this._lang !== lang) {
-      this._lang = lang
-      this._setDirty('lang')
-      this.startFlow()
-    }
+    this.state.set('lang', lang)
   }
 
   setTextDirection(dir) {
-    if (this._dir !== dir) {
-      this._dir = dir
-      this._setDirty('dir')
-      this.startFlow()
-    }
+    this.state.set('dir', dir)
   }
 
   createSelection() {
@@ -350,7 +391,6 @@ class EditorSession extends EventEmitter {
     } else {
       // if no changes, at least update the selection
       this._setSelection(this._transaction.getSelection())
-      this.startFlow()
     }
     return change
   }
@@ -366,17 +406,23 @@ class EditorSession extends EventEmitter {
   /* eslint-disable no-invalid-this*/
 
   on(...args) {
-    let name = args[0]
-    if (this._flowStages.indexOf(name) >= 0) {
-      // remove the stage name from the args
-      args.shift()
-      let options = args[2] || {}
-      let resource = options.resource
-      if (resource) {
-        delete options.resource
-        args.unshift(resource)
+    let stage = args[0]
+    let stageIdx = LEGACY_STAGES.indexOf(stage)
+    if (stageIdx >= 0) {
+      console.warn('DEPRECATED: use AppState API instead')
+      args = args.slice(1)
+      let {inputs, handler, owner} = this._legacyArgs(...args)
+      if (inputs.length === 0) {
+        // with the new State API it is required to describe dependencies
+        // to guaruantee calling in correct order
+        console.error('No dependencies specified. This might not work as expected.')
       }
-      this._registerObserver(name, args)
+      if (stageIdx > 0) {
+        inputs.push(`@${LEGACY_STAGES[stageIdx-1]}`)
+      }
+      this.state.observe(inputs, handler, owner, {
+        stage
+      })
     } else {
       EventEmitter.prototype.on.apply(this, args)
     }
@@ -386,20 +432,10 @@ class EditorSession extends EventEmitter {
     if (args.length === 1) {
       let observer = args[0]
       super.off(...args)
-      // Note: we have stored all registered hooks
-      // on the observer itself
-      if (observer[this.__id__]) {
-        const records = observer[this.__id__]
-        delete observer[this.__id__]
-        records.forEach((record) => {
-          this.__deregisterObserver(record)
-        })
-      }
+
+      this.state.disconnect(observer)
     } else {
-      const stage = args[0]
-      const method = args[1]
-      const observer = args[2]
-      this._deregisterObserver(stage, method, observer)
+      super.off(...args)
     }
   }
 
@@ -418,11 +454,30 @@ class EditorSession extends EventEmitter {
 
   */
   onUpdate(...args) {
-    return this._registerObserver('update', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    this.state.observe(inputs, handler, owner, {
+      stage: 'update',
+    })
   }
 
   onPreRender(...args) {
-    return this._registerObserver('pre-render', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    inputs.push('@update')
+    this.state.observe(inputs, handler, owner, {
+      stage: 'pre-render',
+    })
   }
 
   /**
@@ -456,8 +511,19 @@ class EditorSession extends EventEmitter {
     ```
   */
   onRender(...args) {
-    return this._registerObserver('render', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    inputs.push('@pre-render')
+    this.state.observe(inputs, handler, owner, {
+      stage: 'render',
+    })
   }
+
 
   /**
     Registers a hook for the 'post-render' phase.
@@ -473,7 +539,17 @@ class EditorSession extends EventEmitter {
     @param {Object} [options] options for the resource handler
   */
   onPostRender(...args) {
-    return this._registerObserver('post-render', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    inputs.push('@render')
+    this.state.observe(inputs, handler, owner, {
+      stage: 'post-render',
+    })
   }
 
   /**
@@ -490,17 +566,42 @@ class EditorSession extends EventEmitter {
 
   */
   onPosition(...args) {
-    return this._registerObserver('position', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    inputs.push('@post-render')
+    this.state.observe(inputs, handler, owner, {
+      stage: 'position',
+    })
   }
 
   onFinalize(...args) {
-    return this._registerObserver('finalize', args)
+    console.warn('DEPRECATED: use AppState API instead')
+    let {inputs, handler, owner} = this._legacyArgs(...args)
+    if (inputs.length === 0) {
+      // with the new State API it is required to describe dependencies
+      // to guaruantee calling in correct order
+      console.error('No dependencies specified. This might not work as expected.')
+    }
+    inputs.push('@position')
+    this.state.observe(inputs, handler, owner, {
+      stage: 'finalize',
+    })
   }
 
   _setSelection(sel) {
-    let hasChanged = this.getSelectionState().setSelection(sel)
-    if (hasChanged) this._setDirty('selection')
-    return hasChanged
+    if (!sel) {
+      sel = Selection.nullSelection
+    } else {
+      sel.attach(this.document)
+    }
+    this.state._set('selection', sel)
+    // TODO: do we really need this return flag?
+    return true
   }
 
   _undoRedo(which) {
@@ -523,8 +624,8 @@ class EditorSession extends EventEmitter {
       let sel = change.after.selection
       if (sel) sel.attach(doc)
       this._setSelection(sel)
-      // finally trigger the flow
-      this.startFlow()
+
+      this.state.propagate()
     } else {
       console.warn('No change can be %s.', (which === 'undo'? 'undone':'redone'))
     }
@@ -551,9 +652,10 @@ class EditorSession extends EventEmitter {
 
   _commit(change, info) {
     this._commitChange(change, info)
-    // TODO: Not sure this is the best place to mark the session dirty
+    // TODO: this should be done using app-state
     this._hasUnsavedChanges = true
-    this.startFlow()
+
+    this.state._propagate()
   }
 
   _commitChange(change, info) {
@@ -562,7 +664,7 @@ class EditorSession extends EventEmitter {
     if (info['history'] !== false && !info['hidden']) {
       this._history.push(change.invert())
     }
-    var newSelection = change.after.selection || Selection.nullSelection
+    let newSelection = change.after.selection || Selection.nullSelection
     // HACK injecting the surfaceId here...
     // TODO: we should find out where the best place is to do this
     if (!newSelection.isNull() && !newSelection.surfaceId) {
@@ -578,10 +680,19 @@ class EditorSession extends EventEmitter {
     }
     const doc = this.getDocument()
     doc._apply(change)
+    change.info = info
+    // legacy: there are still some implementations
+    // relying on the internal event mechanism
+    // TODO: discuss how long we want to support this
+    // or if it is viable to switch to AppState API
+    // in general
     doc._notifyChangeListeners(change, info)
-    this._setDirty('document')
-    this._change = change
-    this._info = info
+    // EXPERIMENTAL: new app-state API
+    // The document has been updated.
+    // Now the app-state needs to be informed
+    // and a reflow to be triggered
+    this.state._setDiff('document', change)
+    this._lastChange = change
   }
 
   /*
@@ -626,205 +737,25 @@ class EditorSession extends EventEmitter {
     }
   }
 
-  /*
-    Starts the flow.
-
-    This is necessary when changing resources managed by the session.
-    To be able to change multiple resources at the same time,
-    this is not done automatically, but needs to be called
-    by the implementation.
-
-    @internal
-  */
   startFlow() {
-    if (this._flowing) {
-      throw new Error('Already in a flow. You need to postpone the update.')
-    }
-    this._flowing = true
-    try {
-      this.performFlow()
-    } finally {
-      this._resetFlow()
-      this._flowing = false
-    }
-    // Note: postponing is ATM used only by Macros
-    // HACK: to avoid having multiple flows at the same time
-    // we are running this deferred
-    const postponed = this._postponed
-    const self = this
-    this._postponed = []
-    setTimeout(function() {
-      postponed.forEach(function(fn) {
-        fn(self)
-      })
-    }, 0)
+    console.warn('DEPRECATED: please use AppState API instead')
   }
 
-  /*
-    Emits the phases in the correct order.
-
-    @internal
-  */
   performFlow() {
-    this._flowStages.forEach((stage) => {
-      this._notifyObservers(stage)
-    })
+    console.warn('DEPRECATED: please use AppState API instead')
   }
 
-  postpone(fn) {
-    this._postponed.push(fn)
-  }
-
-  _parseObserverArgs(args) {
-    let params = { stage: null, resource: null, handler: null, context: null, options: {} }
-    // first can be a string
-    let idx = 0
-    let arg = args[idx]
-    if (isString(arg)) {
-      params.resource = arg
-      idx++
-      arg = args[idx]
-    }
-    if (!arg) {
-      throw new Error('Provided handler function was nil.')
-    }
-    if (!isFunction(arg)) {
-      throw new Error('Expecting a handler Function.')
-    }
-    params.handler = arg
-    idx++
-    arg = args[idx]
-    if (arg) {
-      params.context = arg
-      idx++
-      arg = args[idx]
-    }
-    if (arg) {
-      params.options = arg
-    }
-    return params
-  }
-
-  // TODO: this needs to be refactored
-
-  _registerObserver(stage, args) {
-    // this produces a record containing:
-    // { resource, handler, context, options }
-    let record = this._parseObserverArgs(args)
-    record.stage = stage
-    this.__registerObserver(stage, record)
-  }
-
-  __registerObserver(stage, record) {
-    // HACK: storing the observer record information
-    // in the observer itself
-    if (record.context) {
-      const observer = record.context
-      if (!observer[this.__id__]) {
-        observer[this.__id__] = []
-      }
-      observer[this.__id__].push(record)
-    }
-    let observers = this._observers[stage]
-    if (!observers) {
-      observers = this._observers[stage] = []
-    }
-    observers.push(record)
-  }
-
-  // TODO: this needs to be revisited
-  _deregisterObserver(stage, method, observer) {
-    let self = this // eslint-disable-line no-invalid-this
-    if (arguments.length === 1) {
-      // TODO: we should optimize this, as ATM this needs to traverse
-      // a lot of registered listeners
-      forEach(self._observers, (observers) => {
-        for (let i = observers.length-1; i >=0 ; i--) {
-          const o = observers[i]
-          if (o.context === observer) {
-            observers.splice(i, 1)
-            o._deregistered = true
-          }
-        }
-      })
-    } else {
-      let observers = self._observers[stage]
-      // if no observers are registered, then this might not
-      // be a deregistration for a stage, but a regular event
-      if (!observers) {
-        EventEmitter.prototype.off.apply(self, arguments)
-      } else {
-        for (let i = observers.length-1; i >= 0; i--) {
-          let o = observers[i]
-          if (o.handler === method && o.context === observer) {
-            observers.splice(i, 1)
-            o._deregistered = true
-          }
-        }
-      }
-    }
-  }
-
-  __deregisterObserver(record) {
-    const stage = record.stage
-    const observers = this._observers[stage]
-    const observer = record.context
-    const method = record.handler
-    for (let i = observers.length-1; i >= 0; i--) {
-      let o = observers[i]
-      if (o.handler === method && o.context === observer) {
-        observers.splice(i, 1)
-        o._deregistered = true
-      }
-    }
-  }
-
-  _notifyObservers(stage) {
-    // TODO: this is not hierarchical anymore
-    // i.e. probably we have to expect degradation of performance
-    // with huuuge documents, as the number of listeners is
-    // We could optimize this by 'compiling' a list of observers for
-    // each configuration, maybe lazily
-    // for now we accept this circumstance
-    let _observers = this._observers[stage]
-    if (!_observers) return
-    // Make a copy so that iteration does not get confused, when listeners deregister
-    // TODO: we could improve this by using a custom data structure that allows
-    // manipulation during iteration
-    let observers = _observers.slice()
-    for (let i = 0; i < observers.length; i++) {
-      let o = observers[i]      // an observer might have been deregistered while this iteration was going on
-      if (o._deregistered) continue
-      if (!o.resource) {
-        o.handler.call(o.context, this)
-      } else if (o.resource === 'document') {
-        if (!this.hasDocumentChanged()) continue
-        const change = this.getChange()
-        const info = this.getChangeInfo()
-        const path = o.options.path
-        if (!path) {
-          o.handler.call(o.context, change, info, this)
-        } else if (change.hasUpdated(path)) {
-          o.handler.call(o.context, change, info, this)
-        }
-      } else {
-        if (!this.hasChanged(o.resource)) continue
-        const resource = this.get(o.resource)
-        o.handler.call(o.context, resource, this)
-      }
-    }
+  postpone() {
+    console.warn('DEPRECATED: please use AppState API instead')
   }
 
   _setDirty(resource) {
-    this._dirtyFlags[resource] = true
+    console.warn('DEPRECATED: please use AppState API instead')
+    this.state._setDirty(resource)
   }
 
   _resetFlow() {
-    Object.keys(this._dirtyFlags).forEach((resource) => {
-      this._dirtyFlags[resource] = false
-    })
-    this._change = null
-    this._info = null
+    console.warn('DEPRECATED: please use AppState API instead')
   }
 
   /*
@@ -837,15 +768,64 @@ class EditorSession extends EventEmitter {
   */
 
   setBlurred(blurred) {
-    this._blurred = blurred
-    // NOTE: We need to re-evaluate command states when blurred state is changed
-    this.commandManager._updateCommandStates(this)
-    this._setDirty('commandStates')
+    this.state.set('blurred', blurred)
   }
 
   isBlurred() {
-    return Boolean(this._blurred)
+    return this.state.get('blurred')
   }
+
+  _legacyArgs(...args) {
+    // pattern 1: ['stage', 'resource',  handler, owner, opts]
+    let stage, resource, handler, owner, opts
+    if (isFunction(args[2])) {
+      ([stage, resource,handler,owner,opts] = args)
+    }
+    // pattern 2: ['resource',  handler, owner, opts]
+    if (isFunction(args[1])) {
+      ([resource,handler,owner,opts] = args)
+    }
+    // pattern 3: [handler, owner, opts]
+    if (isFunction(args[0])) {
+      ([handler,owner,opts] = args)
+    }
+    if (!isFunction(handler)) {
+      throw new Error('Invalid arguments')
+    }
+    opts = opts || {}
+    let inputs = []
+    if (resource === 'document' && opts.path) {
+      inputs = [{
+        resource: 'document',
+        path: opts.path
+      }]
+    } else if (resource) {
+      inputs = [resource]
+    }
+    // wrap the handler so that we still support the old API,
+    // i.e. calling the handler with the original arguments
+    let _handler = handler
+    if (inputs.length === 0) {
+      _handler = () => {
+        handler.call(owner, this)
+      }
+    } else if (inputs.length === 1) {
+      const _state = this.state
+      if (resource === 'document') {
+        _handler = () => {
+          let change = _state.getDiff('document')
+          handler.call(owner, change, change.info)
+        }
+      } else {
+        _handler = () => {
+          let val = _state.get(resource)
+          handler.call(owner, val)
+        }
+      }
+    }
+    return {stage, inputs, handler: _handler, owner, opts}
+  }
+
 
 }
 
@@ -887,4 +867,30 @@ function _addContainerId(sel, editorSession) {
   }
 }
 
-export default EditorSession
+class LegacySelectionState {
+  constructor(state) {
+    this.state = state
+  }
+
+  getSelection() {
+    console.warn(`DEPRECATED: Use state.get("selection") instead.`)
+    return this.state.get('selection') || Selection.nullSelection
+  }
+
+  isInlineNodeSelection() {
+    console.warn(`DEPRECATED: Use state.get("selectionInfo").isInlineNodeSelection instead.`)
+    return
+  }
+
+  getAnnotationsForType(type) {
+    console.warn(`DEPRECATED: use state.get("selectionInfo").getAnnotationsForType(type) instead`)
+    let selInfo = this.state.get('selectionInfo')
+    return selInfo.getAnnotationsForType(type)
+  }
+
+  isFirst() {
+    console.warn(`DEPRECATED: use state.get("selectionInfo").isFirst instead`)
+    let selInfo = this.state.get('selectionInfo')
+    return selInfo.isFirst
+  }
+}

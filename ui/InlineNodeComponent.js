@@ -106,14 +106,15 @@ class InlineNodeComponent extends AbstractIsolatedNodeComponent {
 
   // TODO: this is almost the same as in InlineNodeComponent
   // We should try to consolidate this
-  _deriveStateFromSelectionState(selState) {
-    let surface = this._getSurface(selState)
+  _deriveStateFromSelectionState() {
+    const state = this.context.state
+    let surface = this._getSurface()
     if (!surface) return null
     // detect cases where this node is selected or co-selected by inspecting the selection
     if (surface === this.context.surface) {
-      let sel = selState.getSelection()
+      let sel = state.get('selection')
       let node = this.props.node
-      if (sel.isPropertySelection() && !sel.isCollapsed() && isEqual(sel.start.path, node.start.path)) {
+      if (sel && sel.isPropertySelection() && !sel.isCollapsed() && isEqual(sel.start.path, node.start.path)) {
         let nodeSel = node.getSelection()
         if(nodeSel.equals(sel)) {
           return { mode: 'selected' }

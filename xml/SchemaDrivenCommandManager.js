@@ -41,17 +41,18 @@ export default class SchemaDrivenCommandManager extends CommandManager {
     return cmd
   }
 
-  _updateCommandStates(editorSession) {
+  _updateCommandStates() {
     const commandStates = {}
     const annotationCommands = this.annotationCommands
     const insertCommands = this.insertCommands
     const switchTypeCommands = this.switchTypeCommands
     const commandContext = this._getCommandContext()
     const params = this._getCommandParams()
+    const editorSession = params.editorSession
     const doc = editorSession.getDocument()
     const selectionState = params.selectionState
     const sel = params.selection
-    const isBlurred = params.editorSession.isBlurred()
+    const isBlurred = editorSession.isBlurred()
     const noSelection = !sel || sel.isNull() || !sel.isAttached()
 
     // all editing commands are disabled if
@@ -64,12 +65,12 @@ export default class SchemaDrivenCommandManager extends CommandManager {
       const path = sel.start.path
       const node = doc.get(path[0])
 
-      // TODO: is this really necessary. It rather seems to be
+      // TODO: is this really necessary? It rather seems to be
       // a workaround for other errors, i.e., the selection pointing
       // to a non existing node
       // If really needed we should document why, and in which case.
       if (!node) {
-        // FIXME: explain when this happens.'
+        // FIXME: explain when this happens.
         throw new Error('FIXME: explain when this happens')
       }
 
