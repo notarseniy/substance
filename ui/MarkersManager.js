@@ -27,9 +27,14 @@ class MarkersManager {
 
     // keep markers up-to-date, and record which text properties
     // are affected by a change
-    editorSession.onUpdate(this._onChange, this)
+    editorSession.onUpdate('document', this._onChange, this)
 
-    // trigger rerendering of 'dirty' text properties
+    // Note: while many things work well with a 'pull' approach,
+    // it is not efficient to let all TextProperties listen to all
+    // changes. Instead we follow a 'push' approach, triggering
+    // TextProperties when necessary.
+    // TODO: maybe we could implement a hierarchical resource for text+markers
+    // similar to what we do with 'document'
     editorSession.onRender(this._updateProperties, this)
   }
 

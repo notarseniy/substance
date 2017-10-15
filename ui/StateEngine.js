@@ -83,11 +83,17 @@ export default class StateEngine {
     // HACK: we must run a reducer initially (but not observers)
     // this should not trigger any reflows or such
     entry._run = (state) => {
-      let _changes = {}
-      entry.inputs.forEach((name) => {
-        _changes[name] = state.getDiff(name)
-      })
-      entry.handler.call(entry.owner, _changes)
+      let arg
+      if (entry.inputs.length === 1) {
+        arg = state.get(entry.inputs[0])
+      } else {
+        let _changes = {}
+        entry.inputs.forEach((name) => {
+          _changes[name] = state.getDiff(name)
+        })
+        arg = _changes
+      }
+      entry.handler.call(entry.owner, arg)
     }
 
     // freezing the entry, that it does not get corrupted inadvertently
@@ -223,7 +229,10 @@ class ValueSlot {
 
   constructor(key, inputs) {
     this.key = key
-    this.inputs = inputs
+    // do not treat pseudo-vars `@<name>` as inputs
+    this.inputs = inputs.filter((name) => {
+      return (name.charAt(0) !== AT)
+    })
     this.observers = []
   }
 
@@ -239,13 +248,18 @@ class ValueSlot {
   }
 
   notifyObservers(state) {
-    let _changes = {}
-    this.inputs.forEach((name) => {
-      _changes[name] = state.getDiff(name)
-    })
+    let arg
+    if (this.inputs.length === 1) {
+      arg = state.get(this.inputs[0])
+    } else {
+      let _changes = {}
+      this.inputs.forEach((name) => {
+        _changes[name] = state.getDiff(name)
+      })
+      arg = _changes
+    }
     this.observers.forEach((entry) => {
-      entry.handler.call(entry.owner, _changes)
+      entry.handler.call(entry.owner, arg)
     })
   }
-
 }

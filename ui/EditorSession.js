@@ -193,6 +193,10 @@ export default class EditorSession extends EventEmitter {
     }
   }
 
+  getState() {
+    return this.state
+  }
+
   getConfigurator() {
     return this.configurator
   }

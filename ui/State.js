@@ -78,6 +78,10 @@ export default class State {
     this._engine.disconnect(observer)
   }
 
+  off(observer) {
+    this.disconnect(observer)
+  }
+
   /*
     Sets value without triggering a reflow.
   */
