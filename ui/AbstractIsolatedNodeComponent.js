@@ -42,7 +42,7 @@ class AbstractIsolatedNodeComponent extends Component {
   dispose() {
     super.dispose.call(this)
 
-    this.context.state.disconnect(this)
+    this.context.state.off(this)
   }
 
   renderContent($$, node, options = {}) {

@@ -28,12 +28,15 @@ export default class CommandManager {
     // some initializations such as setting up a registry
     this._initialize()
 
-    let state = this.editorSession.state
-    state.reduce('commandStates', ['#commandState'], this._updateCommandStates, this)
+    // TODO: it would be nice if all Commands could reduce to a channel
+    // '#commandState' which we can then use as a dependency here
+    let state = this.editorSession.getState()
+    state.reduce(['commandStates', '@update'], ['document', 'selection'], this._updateCommandStates, this)
   }
 
   dispose() {
-    this.editorSession.state.disconnect(this)
+    let state = this.editorSession.getState()
+    state.off(this)
   }
 
   /*

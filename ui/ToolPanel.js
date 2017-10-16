@@ -3,11 +3,11 @@ import Component from './Component'
 export default class ToolPanel extends Component {
 
   didMount() {
-    this.context.editorSession.onRender(this._onCommandStatesChanged, this)
+    this.context.state.observe(['commandStates'], this._onCommandStatesChanged, this)
   }
 
   dispose() {
-    this.context.editorSession.off(this)
+    this.context.state.off(this)
   }
 
   render($$) { // eslint-disable-line
@@ -71,10 +71,9 @@ export default class ToolPanel extends Component {
     return this.props.theme || 'dark'
   }
 
-  _onCommandStatesChanged(editorSession) {
-    if (editorSession.hasChanged('commandStates')) {
-      this.rerender()
-    }
+  _onCommandStatesChanged() {
+    console.log('re-rendering Toolpanel after commandStates changed')
+    this.rerender()
   }
 
 }

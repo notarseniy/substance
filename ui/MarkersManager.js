@@ -25,17 +25,21 @@ class MarkersManager {
 
     this._markers = new MarkersIndex(this)
 
+    let state = editorSession.getState()
     // keep markers up-to-date, and record which text properties
     // are affected by a change
-    editorSession.onUpdate('document', this._onChange, this)
-
+    state.observe('document', this._onDocumentChange, this, {
+      stage: 'update'
+    })
     // Note: while many things work well with a 'pull' approach,
     // it is not efficient to let all TextProperties listen to all
     // changes. Instead we follow a 'push' approach, triggering
     // TextProperties when necessary.
     // TODO: maybe we could implement a hierarchical resource for text+markers
     // similar to what we do with 'document'
-    editorSession.onRender(this._updateProperties, this)
+    state.observe([], this._updateProperties, this, {
+      stage: 'render'
+    })
   }
 
   dispose() {
@@ -96,12 +100,9 @@ class MarkersManager {
     return annos.concat(markers)
   }
 
-  _onChange(editorSession) {
-    if (editorSession.hasDocumentChanged()) {
-      const change = editorSession.getChange()
-      this._markers._onDocumentChange(change)
-      this._recordDirtyTextProperties(change)
-    }
+  _onDocumentChange(change) {
+    this._markers._onDocumentChange(change)
+    this._recordDirtyTextProperties(change)
   }
 
   _recordDirtyTextProperties(change) {

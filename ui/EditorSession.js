@@ -325,6 +325,7 @@ export default class EditorSession extends EventEmitter {
     _addContainerId(sel, this)
 
     this._setSelection(sel)
+    this.state.propagate()
 
     return sel
   }
@@ -436,7 +437,7 @@ export default class EditorSession extends EventEmitter {
       let observer = args[0]
       super.off(...args)
 
-      this.state.disconnect(observer)
+      this.state.off(observer)
     } else {
       super.off(...args)
     }
@@ -658,7 +659,7 @@ export default class EditorSession extends EventEmitter {
     // TODO: this should be done using app-state
     this._hasUnsavedChanges = true
 
-    this.state._propagate()
+    this.state.propagate()
   }
 
   _commitChange(change, info) {

@@ -80,12 +80,12 @@ export default class State {
     reducer.exec(this)
   }
 
-  disconnect(observer) {
+  off(observer) {
     this._engine.disconnect(observer)
   }
 
-  off(observer) {
-    this.disconnect(observer)
+  propagate() {
+    this._propagate()
   }
 
   /*

@@ -42,7 +42,10 @@ class ScrollPane extends AbstractScrollPane {
           childList: true,
         })
       }
-      this.context.editorSession.onPosition(this._onPosition, this)
+      // TODO: should be redesigned now that we have a proper state API
+      this.context.state.observe([], this._onPosition, this, {
+        stage: 'position'
+      })
     }
   }
 
