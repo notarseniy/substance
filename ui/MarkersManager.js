@@ -17,7 +17,9 @@ import { Marker } from '../model'
 class MarkersManager {
 
   constructor(editorSession) {
+    // We do not need the editorSession anymore, just the state
     this.editorSession = editorSession
+    this.state = editorSession.getState()
 
     // registry
     this._textProperties = {}
@@ -25,25 +27,24 @@ class MarkersManager {
 
     this._markers = new MarkersIndex(this)
 
-    let state = editorSession.getState()
     // keep markers up-to-date, and record which text properties
     // are affected by a change
-    state.observe('document', this._onDocumentChange, this, {
-      stage: 'update'
-    })
+    this.state.reduce('markers', ['document'], this._onDocumentChange, this)
     // Note: while many things work well with a 'pull' approach,
     // it is not efficient to let all TextProperties listen to all
     // changes. Instead we follow a 'push' approach, triggering
     // TextProperties when necessary.
     // TODO: maybe we could implement a hierarchical resource for text+markers
     // similar to what we do with 'document'
-    state.observe([], this._updateProperties, this, {
+    this.state.observe(['markers', '@update'], this._updateProperties, this, {
       stage: 'render'
     })
+
+    this.state._set('markers', this._markers)
   }
 
   dispose() {
-    this.editorSession.off(this)
+    this.state.off(this)
     this._markers.dispose()
   }
 
@@ -101,8 +102,12 @@ class MarkersManager {
   }
 
   _onDocumentChange(change) {
-    this._markers._onDocumentChange(change)
-    this._recordDirtyTextProperties(change)
+    if (change) {
+      console.log('MarkersManager._onDocumentChange', change)
+      this._markers._onDocumentChange(change)
+      this._recordDirtyTextProperties(change)
+      this.state._setDirty('markers')
+    }
   }
 
   _recordDirtyTextProperties(change) {
@@ -116,7 +121,7 @@ class MarkersManager {
     Trigger rerendering of all dirty text properties.
   */
   _updateProperties() {
-    // console.log('MarkersManager._updateProperties()')
+    console.log('MarkersManager._updateProperties()')
     Object.keys(this._dirtyProps).forEach((path) => {
       let textProperties = this._textProperties[path]
       if (textProperties) {

@@ -27,7 +27,9 @@ class EditInlineNodeCommand extends Command {
   }
 
   _getAnnotationsForSelection(params) {
-    return params.selectionState.getAnnotationsForType(this.config.nodeType)
+    let state = params.editorSession.getState()
+    let selectionInfo = state.get('selectionInfo')
+    return selectionInfo.getAnnotationsForType(this.config.nodeType)
   }
 
 }

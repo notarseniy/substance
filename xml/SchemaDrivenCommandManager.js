@@ -50,9 +50,11 @@ export default class SchemaDrivenCommandManager extends CommandManager {
     const params = this._getCommandParams()
     const editorSession = params.editorSession
     const doc = editorSession.getDocument()
-    const selectionState = params.selectionState
-    const sel = params.selection
+    const state = editorSession.getState()
+    const selectionInfo = state.get('selectionInfo')
     const isBlurred = editorSession.isBlurred()
+
+    const sel = params.selection
     const noSelection = !sel || sel.isNull() || !sel.isAttached()
 
     // all editing commands are disabled if
@@ -79,7 +81,7 @@ export default class SchemaDrivenCommandManager extends CommandManager {
 
       // annotations can only be applied on PropertySelections inside
       // text, and not on an inline-node
-      if (isInsideText && sel.isPropertySelection() && !selectionState.isInlineNodeSelection()) {
+      if (isInsideText && sel.isPropertySelection() && !selectionInfo.isInlineNodeSelection) {
         const elementSchema = xmlSchema.getElementSchema(node.type)
         _evaluateTyped(this.annotationCommands, elementSchema)
       } else {

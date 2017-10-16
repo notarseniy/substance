@@ -897,4 +897,11 @@ class LegacySelectionState {
     let selInfo = this.state.get('selectionInfo')
     return selInfo.isFirst
   }
+
+  isLast() {
+    console.warn(`DEPRECATED: use state.get("selectionInfo").isLast instead`)
+    let selInfo = this.state.get('selectionInfo')
+    return selInfo.isLast
+  }
+
 }

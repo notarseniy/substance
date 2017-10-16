@@ -209,13 +209,18 @@ class DocumentChangeSlot {
   notifyObservers(state) {
     const docChange = state.getChange('document')
     forEach(docChange.updated, (_, key) => {
-      let entries = this.byPath[key]
-      if (entries) {
-        entries.forEach((entry) => {
-          entry.exec(state)
-        })
-      }
+      this._notifyObserversWithKey(state, key)
     })
+    this._notifyObserversWithKey(state, '__default__')
+  }
+
+  _notifyObserversWithKey(state, key) {
+    let entries = this.byPath[key]
+    if (entries) {
+      entries.forEach((entry) => {
+        entry.exec(state)
+      })
+    }
   }
 }
 

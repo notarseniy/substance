@@ -61,14 +61,14 @@ class InsertInlineNodeCommand extends Command {
 
   isDisabled(params) {
     let sel = params.selection
-    let selectionState = params.editorSession.getSelectionState()
     if (!sel.isPropertySelection()) {
       return true
     }
-
+    let state = params.editorSession.getState()
+    let selInfo = state.get('selectionInfo')
     // We don't allow inserting an inline node on top of an existing inline
     // node.
-    if (selectionState.isInlineNodeSelection()) {
+    if (selInfo.isInlineNodeSelection) {
       return true
     }
     return false

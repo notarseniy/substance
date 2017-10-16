@@ -72,7 +72,6 @@ export default class ToolPanel extends Component {
   }
 
   _onCommandStatesChanged() {
-    console.log('re-rendering Toolpanel after commandStates changed')
     this.rerender()
   }
 

@@ -64,12 +64,13 @@ class AnnotationCommand extends Command {
     @returns {Boolean} Whether or not command could be executed.
    */
   isDisabled(sel, params) {
-    let selectionState = params.selectionState
+    let state = params.editorSession.getState()
+    let selectionInfo = state.get('selectionInfo')
     let isBlurred = params.editorSession.isBlurred()
     // TODO: Container selections should be valid if the annotation type
     // is a container annotation. Currently we only allow property selections.
     if (isBlurred || !sel || sel.isNull() || !sel.isAttached() || sel.isCustomSelection()||
-        sel.isNodeSelection() || sel.isContainerSelection() || selectionState.isInlineNodeSelection()) {
+        sel.isNodeSelection() || sel.isContainerSelection() || selectionInfo.isInlineNodeSelection) {
       return true
     }
     return false
@@ -313,7 +314,9 @@ class AnnotationCommand extends Command {
   }
 
   _getAnnotationsForSelection(params) {
-    return params.selectionState.getAnnotationsForType(this.getAnnotationType())
+    let state = params.editorSession.getState()
+    let selInfo = state.get('selectionInfo')
+    return selInfo.getAnnotationsForType(this.getAnnotationType())
   }
 
   /**

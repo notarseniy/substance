@@ -32,8 +32,8 @@ class InsertNodeCommand extends Command {
   }
 
   showInContext(sel, params) {
-    let selectionState = params.selectionState
-    return sel.isCollapsed() && selectionState.isFirst() && selectionState.isLast()
+    let selectionInfo = params.editorSession.getState().get('selectionInfo')
+    return sel.isCollapsed() && selectionInfo.isFirst && selectionInfo.isLast
   }
 
   execute(params, context) {

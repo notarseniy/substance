@@ -5,7 +5,7 @@ import Command from './Command'
 
   @class
 */
-class EditAnnotationCommand extends Command {
+export default class EditAnnotationCommand extends Command {
 
   constructor(...args) {
     super(...args)
@@ -37,8 +37,8 @@ class EditAnnotationCommand extends Command {
   execute(params) { } // eslint-disable-line
 
   _getAnnotationsForSelection(params) {
-    return params.selectionState.getAnnotationsForType(this.config.nodeType)
+    let state = params.editorSession.getState()
+    let selectionInfo = state.get('selectionInfo')
+    return selectionInfo.getAnnotationsForType(this.config.nodeType)
   }
 }
-
-export default EditAnnotationCommand
