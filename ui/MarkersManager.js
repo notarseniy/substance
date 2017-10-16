@@ -106,6 +106,7 @@ class MarkersManager {
       console.log('MarkersManager._onDocumentChange', change)
       this._markers._onDocumentChange(change)
       this._recordDirtyTextProperties(change)
+      // TODO: only do this if there are any changes
       this.state._setDirty('markers')
     }
   }
