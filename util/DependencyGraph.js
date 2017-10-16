@@ -25,33 +25,20 @@ export default class DependencyGraph {
     this._update()
   }
 
-  getRank(name) {
-    const ranks = this._getRanks()
-    return ranks[name]
-  }
-
-  getMinimumRank(names) {
-    const ranks = this._getRanks()
-    const res = names.map((name) => {
-      let rank = ranks[name]
-      if (rank === undefined) {
-        rank = Number.MAX_VALUE
-      }
-      return rank
-    })
-    return Math.min(...res)
-  }
-
   getMaximumRank(names) {
-    const ranks = this._getRanks()
-    const res = names.map((name) => {
-      let rank = ranks[name]
-      if (rank === undefined) {
-        rank = -1
-      }
-      return rank
-    })
-    return Math.max(...res)
+    if (names.length === 0) {
+      return -1
+    } else {
+      const ranks = this._getRanks()
+      const res = names.map((name) => {
+        let rank = ranks[name]
+        if (rank === undefined) {
+          rank = -1
+        }
+        return rank
+      })
+      return Math.max(...res)
+    }
   }
 
   _getRanks() {

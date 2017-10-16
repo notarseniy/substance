@@ -6,10 +6,10 @@ export default class State {
     this._engine = new StateEngine(this)
 
     this._data = Object.assign({}, initialState)
-    // this is used to record changes
-    // in most cases this is just the old value
-    // for 'document' it is the DocumentChange
-    this._diffs = {}
+    // used to store incremental change descriptions for referential state types
+    // (ATM only used for 'document')
+    this._changes = {}
+    this._oldValues = {}
     this._dirty = {}
 
     window.appState = this
@@ -19,8 +19,12 @@ export default class State {
     return this._data[key]
   }
 
-  getDiff(key) {
-    return this._diffs[key]
+  getChange(key) {
+    return this._changes[key]
+  }
+
+  getOldValue(key) {
+    return this._oldValues[key] || this._data[key]
   }
 
   set(key, value) {
@@ -47,8 +51,8 @@ export default class State {
     State must be informed providing information about
     what has been changed.
   */
-  setDiff(key, diff) {
-    this._setDiff(key, diff)
+  setChange(key, change) {
+    this._setChange(key, change)
     this._propagate()
   }
 
@@ -69,9 +73,11 @@ export default class State {
   }
 
   reduce(outputs, inputs, handler, owner) {
-    // TODO: do we want to run the reducer initially?
     let reducer = this._engine.addReducer(outputs, inputs, handler, owner)
-    reducer._run(this)
+    // NOTE: running the reducer to initialize the reduced value
+    // TODO: ATM we are propagating to often during the initialization phase
+    // maybe we ant to activate the engine after the initialization
+    reducer.exec(this)
   }
 
   disconnect(observer) {
@@ -88,7 +94,7 @@ export default class State {
   _set(key, value) {
     if (!this.isDirty(key)) {
       let oldValue = this._data[key]
-      this._diffs[key] = oldValue
+      this._oldValues[key] = oldValue
       this._dirty[key] = true
     }
     this._data[key] = value
@@ -97,7 +103,7 @@ export default class State {
   _extend(key, hash) {
     if (!this.isDirty(key)) {
       let oldValue = this._data[key]
-      this._diffs[key] = oldValue
+      this._oldValues[key] = oldValue
       this._data[key] = {}
       this._dirty[key] = true
     }
@@ -107,8 +113,8 @@ export default class State {
   /*
     Updates a value without triggering a reflow.
   */
-  _setDiff(key, diff) {
-    this._diffs[key] = diff
+  _setChange(key, change) {
+    this._changes[key] = change
     this._dirty[key] = true
   }
 
@@ -130,7 +136,8 @@ export default class State {
 
   _reset() {
     this._dirty = {}
-    this._diffs = {}
+    this._changes = {}
+    this._oldValues = {}
   }
 
 }

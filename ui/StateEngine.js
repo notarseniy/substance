@@ -1,6 +1,10 @@
-import { isArray, forEach, map, DependencyGraph } from '../util'
+import { isArray, isFunction, forEach, map, DependencyGraph } from '../util'
 
 const AT = '@'.charAt(0)
+// Note: some values in the state deviate from simple values
+// such as 'document', which also has different way to register
+// observers by path.
+const RESOURCES = {}
 
 export default class StateEngine {
 
@@ -10,6 +14,12 @@ export default class StateEngine {
     this._slots = {}
     this._schedule = null
     this._registry = new Map()
+
+    // HACK: ATM hardcoded
+    RESOURCES['document'] = {
+      type: 'ref',
+      SlotClass: DocumentChangeSlot
+    }
   }
 
   propagate() {
@@ -47,26 +57,25 @@ export default class StateEngine {
     } else {
       inputs = inputs.slice()
     }
-    let opts = _extractResourceOptions(inputs)
-    inputs.sort()
-    outputs.sort()
-    // create an entry for registration
-    const key = this._getSlotKey(inputs, outputs)
-    let entry = {
-      slot: key,
-      inputs,
-      outputs,
-      opts,
-      owner,
-      handler
+    if (!isFunction(handler)) {
+      throw new Error('Invalid argument: expected "handler" function')
     }
+    let opts = _extractResourceOptions(inputs)
+    // create an entry for registration
+    let entry = new Entry(inputs, outputs, opts, owner, handler)
+
+    const sortedInputs = inputs.slice()
+    sortedInputs.sort()
+
+    const key = this._getSlotKey(sortedInputs)
     // create or reuse slot
     let slot = this._slots[key]
     if (!slot) {
-      if (inputs.length === 1 && inputs[0] === 'document') {
-        slot = new DocumentChangeSlot(key)
+      let descr = RESOURCES[inputs[0]]
+      if (inputs.length === 1 && descr) {
+        slot = new descr.SlotClass(key, sortedInputs)
       } else {
-        slot = new ValueSlot(key, inputs)
+        slot = new ValueSlot(key, sortedInputs)
       }
       this._slots[key] = slot
       outputs.forEach((name) => {
@@ -74,27 +83,12 @@ export default class StateEngine {
       })
       this._invalidate()
     }
+
     // store the registration info on the owner
     // and register entry with slot
     let entries = this._getRegistration(owner)
     entries.push(entry)
     slot.addObserver(entry)
-
-    // HACK: we must run a reducer initially (but not observers)
-    // this should not trigger any reflows or such
-    entry._run = (state) => {
-      let arg
-      if (entry.inputs.length === 1) {
-        arg = state.get(entry.inputs[0])
-      } else {
-        let _changes = {}
-        entry.inputs.forEach((name) => {
-          _changes[name] = state.getDiff(name)
-        })
-        arg = _changes
-      }
-      entry.handler.call(entry.owner, arg)
-    }
 
     // freezing the entry, that it does not get corrupted inadvertently
     Object.freeze(entry)
@@ -150,8 +144,8 @@ export default class StateEngine {
     return false
   }
 
-  _getSlotKey(inputs, outputs) {
-    return `(${inputs.join(',')})->(${outputs.join(',')})`
+  _getSlotKey(inputs) {
+    return `(${inputs.join(',')})`
   }
 
   _getRegistration(owner) {
@@ -213,12 +207,12 @@ class DocumentChangeSlot {
   }
 
   notifyObservers(state) {
-    const docChange = state.getDiff('document')
+    const docChange = state.getChange('document')
     forEach(docChange.updated, (_, key) => {
       let entries = this.byPath[key]
       if (entries) {
         entries.forEach((entry) => {
-          entry.handler.call(entry.owner, docChange)
+          entry.exec(state)
         })
       }
     })
@@ -229,10 +223,7 @@ class ValueSlot {
 
   constructor(key, inputs) {
     this.key = key
-    // do not treat pseudo-vars `@<name>` as inputs
-    this.inputs = inputs.filter((name) => {
-      return (name.charAt(0) !== AT)
-    })
+    this.inputs = inputs
     this.observers = []
   }
 
@@ -248,18 +239,31 @@ class ValueSlot {
   }
 
   notifyObservers(state) {
-    let arg
-    if (this.inputs.length === 1) {
-      arg = state.get(this.inputs[0])
-    } else {
-      let _changes = {}
-      this.inputs.forEach((name) => {
-        _changes[name] = state.getDiff(name)
-      })
-      arg = _changes
-    }
     this.observers.forEach((entry) => {
-      entry.handler.call(entry.owner, arg)
+      entry.exec(state)
     })
+  }
+}
+
+class Entry {
+
+  constructor(inputs, outputs, opts, owner, handler) {
+    this.inputs = inputs
+    this.outputs = outputs
+    this.opts = opts
+    this.owner = owner
+    this.handler = handler
+  }
+
+  exec(state) {
+    let args = this.inputs.map((name) => {
+      const descr = RESOURCES[name]
+      if (descr && descr.type === 'ref') {
+        return state.getChange(name)
+      } else {
+        return state.get(name)
+      }
+    })
+    this.handler.call(this.owner, ...args)
   }
 }

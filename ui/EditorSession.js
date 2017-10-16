@@ -37,6 +37,19 @@ export default class EditorSession extends EventEmitter {
       lang:  options.lang || this.configurator.getDefaultLanguage(),
       dir: options.dir || 'ltr'
     })
+    // reducers for pseudo-variables bringing stages into the correct order
+    LEGACY_STAGES.forEach((stage, i) => {
+      const output = `@${stage}`
+      const input = `@${LEGACY_STAGES[i-1]}`
+      let f = ()=>{
+        this.state._setDirty(output)
+      }
+      if (i === 0) {
+        this.state.reduce(output, [], f, this)
+      } else {
+        this.state.reduce(output, [input], f, this)
+      }
+    })
 
     // TODO: history should be part of the app-state, too
     this._history = new ChangeHistory()
@@ -122,20 +135,6 @@ export default class EditorSession extends EventEmitter {
     // TODO: see how we want to expose these
     this.converterRegistry = converterRegistry
     this.editingBehavior = editingBehavior
-
-    // pseudo-reducers so that the 'stages' work as expected (at least if a reducer observers the previous stage)
-    LEGACY_STAGES.forEach((stage, i) => {
-      const output = `@${stage}`
-      const input = `@${LEGACY_STAGES[i-1]}`
-      let f = ()=>{
-        this.state._setDirty(output)
-      }
-      if (i === 0) {
-        this.state.reduce(output, [], f, this)
-      } else {
-        this.state.reduce(output, [input], f, this)
-      }
-    })
   }
 
   dispose() {
@@ -695,7 +694,7 @@ export default class EditorSession extends EventEmitter {
     // The document has been updated.
     // Now the app-state needs to be informed
     // and a reflow to be triggered
-    this.state._setDiff('document', change)
+    this.state._setChange('document', change)
     this._lastChange = change
   }
 
@@ -817,7 +816,7 @@ export default class EditorSession extends EventEmitter {
       const _state = this.state
       if (resource === 'document') {
         _handler = () => {
-          let change = _state.getDiff('document')
+          let change = _state.getChange('document')
           handler.call(owner, change, change.info)
         }
       } else {

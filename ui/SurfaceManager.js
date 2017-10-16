@@ -9,15 +9,11 @@ class SurfaceManager {
       selection: null
     }
     const state = editorSession.getState()
-    // TODO: eventually we want to get rid of 'stages' and use
-    // pseudo-variables instead
-    state.reduce('selection', this._onSelectionChanged, this, {
-      stage: 'update'
-    })
-    // TODO: instead of stage 'post-render' we should just depend on '@render'
-    state.observe(['selection', 'document'], this._onSelectionChanged, this, {
-      stage: 'post-render'
-    })
+    // Experimental: using pseudo-variables to achieve something like 'stages'
+    state.reduce('@update', 'selection', this._onSelectionChanged, this)
+    // depending on '@render' and reducing to '@post-render' guarantees
+    // that this gets called after all rendering, considered as 'post-render' step
+    state.reduce('@post-render', ['selection', 'document', '@render'], this._recoverDOMSelection, this)
   }
 
   dispose() {
@@ -87,7 +83,7 @@ class SurfaceManager {
     }
   }
 
-  _onSelectionChanged({selection}) {
+  _onSelectionChanged(selection) {
     const state = this._state
     state.selection = selection
     // HACK: removing DOM selection *and* blurring when having a CustomSelection
