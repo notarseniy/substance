@@ -1,9 +1,19 @@
+/* global Proxy */
 import { forEach, isString, isNil, isNumber, last, inBrowser } from '../util'
 import ElementType from 'domelementtype'
 import cssSelect from '../vendor/css-select'
 import DomUtils from '../vendor/domutils'
 import DOMElement from './DOMElement'
 import parseMarkup from './parseMarkup'
+
+const StyleProxy = {
+  get(target, name) {
+    return target.getStyle(name)
+  },
+  set(target, name, value) {
+    target.setStyle(name, value)
+  }
+}
 
 export default
 class MemoryDOMElement extends DOMElement {
@@ -33,6 +43,7 @@ class MemoryDOMElement extends DOMElement {
         this.attributes = new Map()
         this.classes = new Set()
         this.styles = new Map()
+        this.style = new Proxy(this, StyleProxy)
         this.eventListeners = []
         this.childNodes = args.children || args.childNodes || []
         this._assign(args)
